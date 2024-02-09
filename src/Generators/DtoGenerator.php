@@ -10,9 +10,13 @@ use Crescat\SaloonSdkGenerator\Helpers\NameHelper;
 use Crescat\SaloonSdkGenerator\Helpers\Utils;
 use Illuminate\Support\Str;
 use Nette\PhpGenerator\ClassType;
+use Nette\PhpGenerator\EnumType;
+use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpFile;
+use Spatie\LaravelData\Attributes\DataCollectionOf;
 use Spatie\LaravelData\Attributes\MapName;
 use Spatie\LaravelData\Data;
+use Spatie\LaravelData\DataCollection;
 
 class DtoGenerator extends Generator
 {
@@ -45,6 +49,21 @@ class DtoGenerator extends Generator
         $namespace = $classFile
             ->addNamespace("{$this->config->namespace}\\{$this->config->dtoNamespaceSuffix}");
 
+        if ($schema->enum) {
+            $classType = new EnumType($dtoName, $namespace);
+            $classType->setType($schema->type);
+
+            foreach ($schema->enum as $value) {
+                $classType->addCase(Str::of($value)->snake()->upper(), $value);
+            }
+
+            $namespace->add($classType);
+
+            $this->generated[$dtoName] = $classFile;
+
+            return $classFile;
+        }
+
         $classType->setExtends(Data::class)
             ->setComment($schema->title ?? '')
             ->addComment('')
@@ -54,14 +73,32 @@ class DtoGenerator extends Generator
 
         $generatedMappings = false;
 
+        uksort($properties, function ($name1, $name2) use ($properties, $schema) {
+            $property1Required = in_array($name1, $schema->required ?? []);
+            $property2Required = in_array($name2, $schema->required ?? []);
+
+            if ($property1Required && $property2Required) {
+                return $name2 <=> $name1;
+            }
+
+            if (str_starts_with($name1, '@') && !str_starts_with($name2, '@')) {
+                return -1;
+            }
+
+            if (str_starts_with($name2, '@') && !str_starts_with($name1, '@')) {
+                return -1;
+            }
+
+            return $property1Required ? -1 : 1;
+        });
+
         foreach ($properties as $propertyName => $propertySpec) {
 
             $type = $this->convertOpenApiTypeToPhp($propertySpec);
             $sub = NameHelper::dtoClassName($type);
 
             if ($type === 'object' || $type == 'array') {
-
-                if (! isset($this->generated[$sub]) && ! empty($propertySpec->properties)) {
+                if (! isset($this->generated[$sub]) && ! empty($propertySpec->items)) {
                     $this->generated[$sub] = $this->generateDtoClass($propertyName, $propertySpec);
                 }
             }
@@ -70,8 +107,21 @@ class DtoGenerator extends Generator
 
             $property = $classConstructor->addPromotedParameter($name)
                 ->setType($propertySpec instanceof Reference ? $namespace->resolveName($sub) : $type)
-                ->setPublic()
-                ->setDefaultValue(null);
+                ->setPublic();
+
+            if ($type === 'array') {
+                $type = DataCollection::class;
+                $namespace->addUse($type);
+
+                $property->setType($type);
+                $property->addAttribute(DataCollectionOf::class, [new Literal($this->convertOpenApiTypeToPhp($propertySpec->items) .  '::class')]);
+
+                $namespace->addUse(DataCollectionOf::class);
+            }
+
+            if (!in_array($propertyName, $schema->required ?? [])) {
+                $property->setNullable()->setDefaultValue(null);
+            }
 
             if ($name != $propertyName) {
                 $property->addAttribute(MapName::class, [$propertyName]);
@@ -90,7 +140,7 @@ class DtoGenerator extends Generator
         return $classFile;
     }
 
-    protected function convertOpenApiTypeToPhp(Schema|Reference $schema)
+    public static function convertOpenApiTypeToPhp(Schema|Reference $schema)
     {
         if ($schema instanceof Reference) {
             return Str::afterLast($schema->getReference(), '/');
@@ -101,13 +151,13 @@ class DtoGenerator extends Generator
         }
 
         if (is_string($schema->type)) {
-            return $this->mapType($schema->type, $schema->format);
+            return static::mapType($schema->type, $schema->format);
         }
 
         return 'mixed';
     }
 
-    protected function mapType($type, $format = null): string
+    protected static function mapType($type, $format = null): string
     {
         return match ($type) {
             'integer' => 'int',

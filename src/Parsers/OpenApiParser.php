@@ -10,6 +10,7 @@ use cebe\openapi\spec\Operation;
 use cebe\openapi\spec\Parameter as OpenApiParameter;
 use cebe\openapi\spec\PathItem;
 use cebe\openapi\spec\Paths;
+use cebe\openapi\spec\Response as SpecResopnse;
 use cebe\openapi\spec\SecurityRequirement;
 use cebe\openapi\spec\Server;
 use cebe\openapi\spec\Type;
@@ -20,6 +21,7 @@ use Crescat\SaloonSdkGenerator\Data\Generator\BaseUrl;
 use Crescat\SaloonSdkGenerator\Data\Generator\Endpoint;
 use Crescat\SaloonSdkGenerator\Data\Generator\Method;
 use Crescat\SaloonSdkGenerator\Data\Generator\Parameter;
+use Crescat\SaloonSdkGenerator\Data\Generator\Response;
 use Crescat\SaloonSdkGenerator\Data\Generator\SecurityScheme;
 use Crescat\SaloonSdkGenerator\Data\Generator\SecuritySchemeType;
 use Crescat\SaloonSdkGenerator\Data\Generator\ServerParameter;
@@ -157,7 +159,11 @@ class OpenApiParser implements Parser
             method: Method::parse($method),
             pathSegments: Str::of($path)->replace('{', ':')->remove('}')->trim('/')->explode('/')->toArray(),
             collection: $operation->tags[0] ?? null, // In the real-world, people USUALLY only use one tag...
-            response: null, // TODO: implement "definition" parsing
+            response: collect($operation->responses)->map(fn(SpecResopnse $response) => new Response(
+                content: $response->content,
+                description: $response->description,
+                headers: $response->headers ?? []
+            ))->toArray(),
             description: $operation->description,
             queryParameters: $this->mapParams($operation->parameters, 'query'),
             // TODO: Check if this differs between spec versions

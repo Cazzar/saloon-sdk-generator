@@ -8,6 +8,7 @@ class Endpoint
      * @param  Parameter[]  $queryParameters
      * @param  Parameter[]  $pathParameters
      * @param  Parameter[]  $bodyParameters
+     * @param  Response[]   $response
      */
     public function __construct(
         public string $name,

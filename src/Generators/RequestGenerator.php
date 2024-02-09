@@ -2,6 +2,7 @@
 
 namespace Crescat\SaloonSdkGenerator\Generators;
 
+use cebe\openapi\spec\MediaType;
 use Crescat\SaloonSdkGenerator\Data\Generator\ApiSpecification;
 use Crescat\SaloonSdkGenerator\Data\Generator\Endpoint;
 use Crescat\SaloonSdkGenerator\Data\Generator\Parameter;
@@ -10,6 +11,7 @@ use Crescat\SaloonSdkGenerator\Helpers\MethodGeneratorHelper;
 use Crescat\SaloonSdkGenerator\Helpers\NameHelper;
 use Crescat\SaloonSdkGenerator\Helpers\Utils;
 use DateTime;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Nette\PhpGenerator\ClassType;
@@ -18,6 +20,7 @@ use Nette\PhpGenerator\PhpFile;
 use Saloon\Contracts\Body\HasBody;
 use Saloon\Enums\Method as SaloonHttpMethod;
 use Saloon\Http\Request;
+use Saloon\Http\Response;
 use Saloon\Traits\Body\HasJsonBody;
 
 class RequestGenerator extends Generator
@@ -84,6 +87,25 @@ class RequestGenerator extends Generator
                     })
 
             );
+
+        /** @var MediaType $mediaType */
+        $mediaType = Arr::first(Arr::get($endpoint->response, 200)?->content);
+
+        if ($mediaType && ($type = DtoGenerator::convertOpenApiTypeToPhp($mediaType?->schema)) !== 'array') {
+            $method = $classType->addMethod('createDtoFromResponse')
+                ->setPublic()
+                ->setReturnType('mixed')
+                ->addBody(
+                    new Literal(sprintf('return %s::from($response->json());', $type))
+                );
+            $method->addParameter('response')
+                ->setType(Response::class);
+            $namespace->addUse(Response::class);
+
+            $method->addComment("@throws \\JsonException\n@return $type");
+
+            $namespace->addUse("{$this->config->namespace}\\{$this->config->dtoNamespaceSuffix}\\{$type}");
+        }
 
         $classConstructor = $classType->addMethod('__construct');
 
